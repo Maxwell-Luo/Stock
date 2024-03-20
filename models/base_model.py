@@ -1,107 +1,92 @@
 import psycopg2
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from psycopg2 import sql
+from psycopg2.extensions import connection as Connection
 
 class BaseModel:
-    def __init__(self):
-        self.db_params = {
-            "host": "localhost",
-            "user": "postgres",
-            "password": "password",
-            "dbname": "postgres"
-        }
 
-        self.connect = None
-        self.cursor = None
+    table_name = ""
 
-    def Connect(self, database_name='', isolation_level=None):
+    def __init__(self, db_connection: Connection):
+        self.connection = db_connection
 
-        if self.connect is not None and self.cursor is not None:
-            return
-
-        elif self.connect is not None and self.cursor is None:
-            try:
-                if isolation_level is None:
-                    self.cursor = self.connect.cursor()
-
-                else:
-                    self.connect.set_isolation_level(isolation_level)
-                    self.cursor = self.connect.cursor()
-
-            except Exception as err:
-                print("Error : ", err)
-                self.connect = None
-                self.cursor = None
-                return
+    def table(self, table_name, table_definition):
 
         try:
-            if database_name == '':
-                connect = psycopg2.connect(**self.db_params)
-            else:
-                self.db_params['dbname'] = database_name
-                connect = psycopg2.connect(**self.db_params)
-
-            self.connect = connect
-
-            if isolation_level is None:
-                self.cursor = connect.cursor()
-
-            else:
-                self.connect.set_isolation_level(isolation_level)
-                self.cursor = connect.cursor()
+            query = sql.SQL("CREATE TABLE IF NOT EXISTS {name} ({definition});").format(
+                name=sql.Identifier(table_name),
+                definition=sql.SQL(table_definition)
+            )
+            with self.connection.cursor() as cursor:
+                cursor.execute(query)
+                self.connection.commit()
 
         except Exception as err:
-            print("Exception : ", err)
-            self.connect = None
-            self.cursor = None
+            print(f'Exception : {err}')
 
-    def CloseConnect(self):
-        try:
-            self.cursor.close()
-            self.connect.close()
+    def create(self, data):
 
-        except Exception as err:
-            print('Exception : ', err)
+        columns = data.keys()
+        values = tuple(data.values())
 
-        self.connect = None
-        self.cursor = None
+        query = sql.SQL("INSERT INTO {table} ({fields}) VALUES ({placeholders}) RETURNING id;").format(
+            table=sql.Identifier(self.table_name),
+            fields=sql.SQL(', ').join(map(sql.Identifier, columns)),
+            placeholders=sql.SQL(', ').join(sql.Placeholder() * len(values))
+        )
+        with self.connection.cursor() as cursor:
+            cursor.execute(query, values)
+            self.connection.commit()
+            return cursor.fetchone()[0]
 
-    def CheckPostgreStatus(self):
+    def read(self, conditions=None):
 
-        self.Connect()
+        where_clause = sql.SQL("WHERE {}").format(sql.SQL(' AND ').join(
+            sql.Composed([sql.Identifier(key), sql.SQL('='), sql.Placeholder()]) for key in conditions)
+        ) if conditions else sql.SQL('')
 
-        if self.cursor is None:
-            exit(1)
-
-        self.cursor.execute('SELECT version()')
-
-        version = self.cursor.fetchone()
-
-        print('version: ', version)
-
-        self.CloseConnect()
+        query = sql.SQL("SELECT * FROM {table} {where};").format(
+            table=sql.Identifier(self.table_name),
+            where=where_clause
+        )
+        with self.connection.cursor as cursor:
+            cursor.execute(query, tuple(conditions.values()) if conditions else ())
+            return cursor.fetchall()
 
 
-    def CreateDatabase(self, db_name):
+    def update(self, conditions, data):
+        set_clause = sql.SQL(', ').join(
+            sql.Composed([sql.Identifier(key), sql.SQL('='), sql.Placeholder()]) for key in data.keys()
+        )
 
-        self.Connect(isolation_level=ISOLATION_LEVEL_AUTOCOMMIT)
+        where_clause = sql.SQL(' AND ').join(
+            sql.Composed([sql.Identifier(key), sql.SQL('='), sql.Placeholder()]) for key in conditions.keys()
+        )
 
-        if self.cursor is None:
-            exit(1)
+        query = sql.SQL("UPDATE {table} SET {set} WHERE {where};").format(
+            table=sql.Identifier(self.table_name),
+            set=set_clause,
+            where=where_clause
+        )
 
-        self.cursor.execute("SELECT 1 FROM pg_catalog.pg_database "
-                            "WHERE datname = %s", (db_name,))
+        with self.connection.cursor() as cursor:
+            cursor.execute(query, tuple(data.values()) + tuple(conditions.values()))
+            self.connection.commit()
+            return cursor.rowcount
 
-        exists = self.cursor.fetchone()
+    def delete(self, conditions):
+        where_clause = sql.SQL(' AND ').join(
+            sql.Composed([sql.Identifier(key), sql.SQL('='), sql.Placeholder()]) for key in conditions.keys()
+        )
 
-        if not exists:
-            self.cursor.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(db_name)))
-            print(f"Database {db_name} was created")
-        else:
-            print(f"Database {db_name} is exist")
+        query = sql.SQL("DELETE FROM {table} WHERE {where};").format(
+            table=sql.Identifier(self.table_name),
+            where=where_clause
+        )
 
-        self.CloseConnect()
+        with self.connection.cursor() as cursor:
+            cursor.execute(query, tuple(conditions.values()))
+            self.connection.commit()
+            return cursor.rowcount
 
-    def InitialDatabase(self):
 
-        self.CreateDatabase('Stock')
