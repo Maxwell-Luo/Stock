@@ -12,40 +12,72 @@ class Pg:
             "dbname": "postgres"
         }
 
-        self.connect = None
-        self.cursor = None
+        self.conn = None
 
+    def connect(self, database_name='', isolation_level=None):
 
-    def CreateCompanyInfoTable(self):
+        if self.conn is not None:
+            return self.conn
 
-        sql = '''
-        CREATE TABLE IF NOT EXISTS company_info (
-            company_code VARCHAR(10) PRIMARY KEY,
-            company_name VARCHAR(10) NOT NULL
-        );
-        '''
+        try:
+            if database_name == '':
+                self.conn = psycopg2.connect(**self.db_params)
+            else:
+                self.db_params['dbname'] = database_name
+                self.conn = psycopg2.connect(**self.db_params)
 
-        self.__Connect()
+            if isolation_level is not None:
+                self.conn.set_isolation_level(isolation_level)
 
-        if self.cursor is None:
-            exit(1)
+        except Exception as err:
+            print("Error : ", err)
+            self.conn = None
+            return self.conn
 
+        return self.conn
 
-    def CreateDailyTransactionsTable(self):
+    def close_connect(self):
+        try:
+            self.conn.close()
 
-        sql = '''
-        CREATE TABLE IF NOT EXISTS daily_transactions (
-            id SERIAL PRIMARY KEY, 
-            company_code VARCHAR(10),
-            date DATE NOT NULL,
-            volume BIGINT, 
-            amount DECIMAL, 
-            opening_price DECIMAL,
-            high_price DECIMAL,
-            low_price DECIMAL,
-            closing_price DECIMAL,
-            price_change DECIMAL,
-            tx_count INT,
-            FOREIGN KEY (company_code) REFERENCES company_info(company_code)
-        );
-        '''
+        except Exception as err:
+            print('Exception : ', err)
+
+        self.conn = None
+
+    def check_postgre_status(self):
+
+        self.connect()
+
+        with self.conn.cursor() as cursor:
+
+            cursor.execute('SELECT version()')
+
+            version = cursor.fetchone()
+
+            print('version: ', version)
+
+        self.close_connect()
+
+    def create_database(self, db_name):
+
+        self.connect(isolation_level=ISOLATION_LEVEL_AUTOCOMMIT)
+        with self.conn.cursor() as cursor:
+
+            cursor.execute("SELECT 1 FROM pg_catalog.pg_database "
+                            "WHERE datname = %s", (db_name,))
+
+            exists = cursor.fetchone()
+
+            if not exists:
+                cursor.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(db_name)))
+                print(f"Database {db_name} was created")
+            else:
+                print(f"Database {db_name} is exist")
+
+            self.close_connect()
+
+    def initial_database(self):
+
+        self.create_database('Stock')
+
