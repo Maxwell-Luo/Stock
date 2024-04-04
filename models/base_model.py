@@ -12,6 +12,7 @@ class BaseModel:
         self.connection = db_connection
         self.data = None
         self.conditions = None
+        self.fields = None
 
     def table(self, table_definition):
 
@@ -20,6 +21,18 @@ class BaseModel:
                 name=sql.Identifier(self.table_name),
                 definition=sql.SQL(table_definition)
             )
+
+            with self.connection.cursor() as cursor:
+                cursor.execute(query)
+                self.connection.commit()
+
+        except Exception as err:
+            print(f'Exception : {err}')
+
+    def delete_table(self):
+
+        try:
+            query = sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(self.table_name))
 
             with self.connection.cursor() as cursor:
                 cursor.execute(query)
@@ -37,12 +50,32 @@ class BaseModel:
 
         self.data = {key: value for key, value in self.__dict__.items()
                      if value is not None and key not in ["connection", "data", "conditions"]}
+
         return self.data
 
     def set_conditions(self, **kwargs):
 
-        self.conditions = {key: value for key, value in kwargs.items() if hasattr(self, key)}
+        self.conditions = {}
+
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                self.conditions[key] = value
+            else:
+                raise AttributeError(f'{key} is not valid attributes of {type(self).__name__}')
+
         return self.conditions
+
+    def set_fields(self, *args):
+
+        self.fields = []
+
+        for arg in args:
+            if hasattr(self, arg):
+                self.fields.append(arg)
+            else:
+                raise AttributeError(f'{arg} is not valid attributes of {type(self).__name__}')
+
+        return self.fields
 
     def create(self):
 
@@ -66,11 +99,18 @@ class BaseModel:
             sql.Composed([sql.Identifier(key), sql.SQL('='), sql.Placeholder()]) for key in self.conditions)
         ) if self.conditions else sql.SQL('')
 
-        query = sql.SQL("SELECT * FROM {table} {where};").format(
+        if self.fields:
+            fields_clause = sql.SQL(', ').join(map(sql.Identifier, self.fields))
+        else:
+            fields_clause = sql.SQL('*')
+
+        query = sql.SQL("SELECT {fields} FROM {table} {where};").format(
+            fields=fields_clause,
             table=sql.Identifier(self.table_name),
             where=where_clause
         )
-        with self.connection.cursor as cursor:
+
+        with self.connection.cursor() as cursor:
             cursor.execute(query, tuple(self.conditions.values()) if self.conditions else ())
             return cursor.fetchall()
 
