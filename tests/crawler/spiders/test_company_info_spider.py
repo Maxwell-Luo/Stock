@@ -5,7 +5,7 @@ from crawler.spiders.company_info_spider import CompanyInfoSpider
 
 @pytest.fixture
 def response():
-    return HtmlResponse(url="http://example.com", body= """
+    return HtmlResponse(url="http://example.com", body="""
        <html>
           <body>
             <table>

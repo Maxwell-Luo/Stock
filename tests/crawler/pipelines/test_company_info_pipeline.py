@@ -14,6 +14,7 @@ def pipeline():
         pipeline.countries_dict = {'TW': 1}
         return pipeline
 
+
 def test_process_item(pipeline):
 
     item = {
