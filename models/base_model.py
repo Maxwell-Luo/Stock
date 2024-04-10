@@ -1,5 +1,4 @@
 import psycopg2
-from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from psycopg2 import sql
 from psycopg2.extensions import connection as Connection
 
@@ -13,6 +12,34 @@ class BaseModel:
         self.data = None
         self.conditions = None
         self.fields = None
+        self.order_by = None
+        self.order_direction = 'ASC'
+        self.returning_fields = None
+        self.limit = None
+        # clause
+        self.set_clause = None
+        self.where_clause = None
+        self.fields_clause = None
+        self.order_by_clause = None
+        self.returning_clause = None
+        self.limit_clause = None
+
+        # When setting up data, exclude the attribute of BaseModel itself
+        self.exclude_attr = ("connection",
+                             "data",
+                             "conditions",
+                             "fields",
+                             "order_by",
+                             "order_direction",
+                             "returning_fields",
+                             "limit",
+                             "set_clause",
+                             "where_clause",
+                             "fields_clause",
+                             "order_by_clause",
+                             "returning_clause",
+                             "limit_clause",
+                             "exclude_attr")
 
     def table(self, table_definition):
 
@@ -43,13 +70,10 @@ class BaseModel:
 
     def set_data(self, **kwargs):
         for key, value in kwargs.items():
-            if hasattr(self, key):
-                setattr(self, key, value)
-            else:
-                raise AttributeError(f'{key} is not valid attributes of {type(self).__name__}')
+            setattr(self, self._check_attribute(key), value)
 
         self.data = {key: value for key, value in self.__dict__.items()
-                     if value is not None and key not in ["connection", "data", "conditions"]}
+                     if value is not None and key not in self.exclude_attr}
 
         return self.data
 
@@ -58,10 +82,7 @@ class BaseModel:
         self.conditions = {}
 
         for key, value in kwargs.items():
-            if hasattr(self, key):
-                self.conditions[key] = value
-            else:
-                raise AttributeError(f'{key} is not valid attributes of {type(self).__name__}')
+            self.conditions[self._check_attribute(key)] = value
 
         return self.conditions
 
@@ -70,83 +91,174 @@ class BaseModel:
         self.fields = []
 
         for arg in args:
-            if hasattr(self, arg):
-                self.fields.append(arg)
-            else:
-                raise AttributeError(f'{arg} is not valid attributes of {type(self).__name__}')
+            self.fields.append(self._check_attribute(arg))
 
         return self.fields
+
+    def set_order(self, field, direction=None):
+
+        self.order_by = self._check_attribute(field)
+
+        if direction:
+            self.order_direction = direction
+
+    def set_returning(self, fields):
+
+        self.returning_fields = []
+
+        for field in fields:
+            self.returning_fields.append(self._check_attribute(field))
+
+    def set_limit(self, limit):
+
+        self.limit = limit
 
     def create(self):
 
         columns = self.data.keys()
         values = tuple(self.data.values())
 
-        query = sql.SQL("INSERT INTO {table} ({fields}) VALUES ({placeholders}) RETURNING id;").format(
+        self._generate_clause()
+
+        query = sql.SQL("INSERT INTO {table} ({fields}) VALUES ({placeholders}) {returning};").format(
             table=sql.Identifier(self.table_name),
             fields=sql.SQL(', ').join(map(sql.Identifier, columns)),
-            placeholders=sql.SQL(', ').join(sql.Placeholder() * len(values))
+            placeholders=sql.SQL(', ').join(sql.Placeholder() * len(values)),
+            returning=self.returning_clause
         )
 
-        with self.connection.cursor() as cursor:
-            cursor.execute(query, values)
-            self.connection.commit()
-            return cursor.fetchone()[0]
+        try:
+
+            with self.connection.cursor() as cursor:
+                cursor.execute(query, values)
+                self.connection.commit()
+                return cursor.rowcount
+
+        except psycopg2.Error as err:
+            print(f"PostgreSQL Exception : {err}")
+            print(f"Diag : {err.diag}")
+            print(f"Pgcode : {err.pgcode}")
+            print(f"Pgerror : {err.pgerror}")
+            self.connection.rollback()
+            return None
+
+        except Exception as err:
+            print(f"Exception : {err}")
+            self.connection.rollback()
+            return None
 
     def read(self):
 
-        where_clause = sql.SQL("WHERE {}").format(sql.SQL(' AND ').join(
-            sql.Composed([sql.Identifier(key), sql.SQL('='), sql.Placeholder()]) for key in self.conditions)
-        ) if self.conditions else sql.SQL('')
+        self._generate_clause()
 
-        if self.fields:
-            fields_clause = sql.SQL(', ').join(map(sql.Identifier, self.fields))
-        else:
-            fields_clause = sql.SQL('*')
-
-        query = sql.SQL("SELECT {fields} FROM {table} {where};").format(
-            fields=fields_clause,
+        query = sql.SQL("SELECT {fields} FROM {table} {where} {order_by} {limit};").format(
+            fields=self.fields_clause,
             table=sql.Identifier(self.table_name),
-            where=where_clause
+            where=self.where_clause,
+            order_by=self.order_by_clause,
+            limit=self.limit_clause
         )
 
-        with self.connection.cursor() as cursor:
-            cursor.execute(query, tuple(self.conditions.values()) if self.conditions else ())
-            return cursor.fetchall()
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute(query, tuple(self.conditions.values()) if self.conditions else ())
+                return cursor.fetchall()
+
+        except psycopg2.Error as err:
+            print(f"PostgreSQL Exception : {err}")
+            return None
+
+        except Exception as err:
+            print(f"Exception : {err}")
+            return None
 
     def update(self):
-        set_clause = sql.SQL(', ').join(
-            sql.Composed([sql.Identifier(key), sql.SQL('='), sql.Placeholder()]) for key in self.data.keys()
-        )
 
-        where_clause = sql.SQL(' AND ').join(
-            sql.Composed([sql.Identifier(key), sql.SQL('='), sql.Placeholder()]) for key in self.conditions.keys()
-        )
+        self._generate_clause()
 
-        query = sql.SQL("UPDATE {table} SET {set} WHERE {where};").format(
+        query = sql.SQL("UPDATE {table} SET {set} {where} {returning};").format(
             table=sql.Identifier(self.table_name),
-            set=set_clause,
-            where=where_clause
+            set=self.set_clause,
+            where=self.where_clause,
+            returning=self.returning_clause
         )
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute(query, tuple(self.data.values()) + tuple(self.conditions.values()))
+                self.connection.commit()
+                return cursor.rowcount
 
-        with self.connection.cursor() as cursor:
-            cursor.execute(query, tuple(self.data.values()) + tuple(self.conditions.values()))
-            self.connection.commit()
-            return cursor.rowcount
+        except psycopg2.Error as err:
+            print(f"PostgreSQL Exception : {err}")
+            self.connection.rollback()
+            return None
+
+        except Exception as err:
+            print(f"Exception : {err}")
+            self.connection.rollback()
+            return None
 
     def delete(self):
-        where_clause = sql.SQL(' AND ').join(
-            sql.Composed([sql.Identifier(key), sql.SQL('='), sql.Placeholder()]) for key in self.conditions.keys()
-        )
 
-        query = sql.SQL("DELETE FROM {table} WHERE {where};").format(
+        self._generate_clause()
+
+        query = sql.SQL("DELETE FROM {table} {where} {returning};").format(
             table=sql.Identifier(self.table_name),
-            where=where_clause
+            where=self.where_clause,
+            returning=self.returning_clause
         )
 
-        with self.connection.cursor() as cursor:
-            cursor.execute(query, tuple(self.conditions.values()))
-            self.connection.commit()
-            return cursor.rowcount
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute(query, tuple(self.conditions.values()))
+                self.connection.commit()
+                return cursor.rowcount
 
+        except psycopg2.Error as err:
+            print(f"PostgreSQL Exception : {err}")
+            self.connection.rollback()
+            return None
+
+        except Exception as err:
+            print(f"Exception : {err}")
+            self.connection.rollback()
+            return None
+
+    def _check_attribute(self, attr):
+        if hasattr(self, attr):
+            return attr
+        else:
+            raise AttributeError(f'{attr} is not valid attributes of {type(self).__name__}')
+
+    def _generate_clause(self):
+
+        self.set_clause = sql.SQL(', ').join(
+            sql.Composed(
+                [sql.Identifier(key), sql.SQL('='), sql.Placeholder()]
+            ) for key in self.data.keys()
+        ) if self.data else sql.SQL('')
+
+        self.where_clause = sql.SQL("WHERE {}").format(
+            sql.SQL(' AND ').join(
+                sql.Composed(
+                    [sql.Identifier(key), sql.SQL('='), sql.Placeholder()]
+                ) for key in self.conditions)
+        ) if self.conditions else sql.SQL('')
+
+        self.fields_clause = sql.SQL(', ').join(
+            map(sql.Identifier, self.fields)
+        ) if self.fields else sql.SQL('*')
+
+        self.order_by_clause = sql.SQL("ORDER BY {order_by} {order_direction}").format(
+            order_by=sql.Identifier(self.order_by),
+            order_direction=sql.SQL(self.order_direction)
+        ) if self.order_by else sql.SQL('')
+
+        self.returning_clause = sql.SQL("RETURNING {}").format(
+            sql.SQL(', ').join(map(sql.Identifier, self.returning_fields))
+        ) if self.returning_fields else sql.SQL('')
+
+        self.limit_clause = sql.SQL("LIMIT {limit}").format(
+            limit=sql.SQL(self.limit)
+        ) if self.limit else sql.SQL("")
 
