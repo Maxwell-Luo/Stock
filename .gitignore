@@ -2,3 +2,4 @@ venv
 .idea/
 for_test.py
 __pycache__*
+logs
