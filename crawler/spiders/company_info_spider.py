@@ -11,7 +11,7 @@ class CompanyInfoSpider(scrapy.Spider):
     start_urls = [listed_url, otc_url]
     custom_settings = {
         'ITEM_PIPELINES': {
-            'crawler.pipelines.company_info_pipeline.CompanyInfoPipeline': 300,
+            'crawler.pipelines.company_info_pipeline.CompanyInfoPipeline': 200,
         }
     }
     # allowed_domains = ""
@@ -38,8 +38,6 @@ class CompanyInfoSpider(scrapy.Spider):
             item = CompanyInfoItem()
             item['code'] = code
             item['name'] = name
-            item['market_category'] = market_category
+            item['market_type'] = market_category
             item['industry'] = industry
             yield item
-
-
