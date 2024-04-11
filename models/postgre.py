@@ -45,39 +45,8 @@ class Pg:
 
         self.conn = None
 
-    def check_postgre_status(self):
-
-        self.connect()
-
+    def command(self, query_str):
         with self.conn.cursor() as cursor:
-
-            cursor.execute('SELECT version()')
-
-            version = cursor.fetchone()
-
-            print('version: ', version)
-
-        self.close_connect()
-
-    def create_database(self, db_name):
-
-        self.connect(isolation_level=ISOLATION_LEVEL_AUTOCOMMIT)
-        with self.conn.cursor() as cursor:
-
-            cursor.execute("SELECT 1 FROM pg_catalog.pg_database "
-                            "WHERE datname = %s", (db_name,))
-
-            exists = cursor.fetchone()
-
-            if not exists:
-                cursor.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(db_name)))
-                print(f"Database {db_name} was created")
-            else:
-                print(f"Database {db_name} is exist")
-
-            self.close_connect()
-
-    def initial_database(self):
-
-        self.create_database('Stock')
+            cursor.execute(query_str)
+            return cursor.fetchall()
 
