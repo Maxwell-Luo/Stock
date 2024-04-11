@@ -1,7 +1,5 @@
 import psycopg2
-from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-from psycopg2 import sql
-
+from utils.logger import Logger
 
 class Pg:
     def __init__(self):
@@ -13,6 +11,7 @@ class Pg:
         }
 
         self.conn = None
+        self.logger = Logger('postgres').get_logger()
 
     def connect(self, database_name='', isolation_level=None):
 
@@ -46,7 +45,12 @@ class Pg:
         self.conn = None
 
     def command(self, query_str):
-        with self.conn.cursor() as cursor:
-            cursor.execute(query_str)
-            return cursor.fetchall()
+
+        try:
+            with self.conn.cursor() as cursor:
+                cursor.execute(query_str)
+                return cursor.fetchall()
+
+        except Exception as err:
+            self.logger.error(err)
 
