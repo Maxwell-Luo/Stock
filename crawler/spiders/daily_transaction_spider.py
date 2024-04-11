@@ -1,4 +1,4 @@
-from _datetime import datetime
+import datetime
 import json
 import scrapy
 from ..items.daily_transaction_item import DailyTransactionItem
@@ -6,6 +6,7 @@ from models.postgre import Pg
 from models.daily_transaction import DailyTransaction
 from models.company_info import CompanyInfo
 from scrapy import Request
+from dateutil.relativedelta import relativedelta
 
 
 class DailyTransactionSpider(scrapy.Spider):
@@ -84,18 +85,18 @@ class DailyTransactionSpider(scrapy.Spider):
         result = self.daily_transaction.read()
 
         dates = []
-        start_date = result[0] if result else "20120101"
-        current_date = datetime.strptime(start_date, "%Y%m%d")
-        today = datetime.today()
+
+        if result:
+            current_date = result[0][0]
+        else:
+            start_date = "20120101"
+            current_date = datetime.datetime.strptime(start_date, "%Y%m%d").date()
+
+        today = datetime.date.today()
 
         while current_date < today:
-
             dates.append(current_date.strftime("%Y%m%d"))
-
-            if current_date.month == 12:
-                current_date = current_date.replace(year=current_date.year + 1, month=1)
-            else:
-                current_date = current_date.replace(month=current_date.month + 1)
+            current_date = current_date + relativedelta(months=+1)
 
         return dates
 
