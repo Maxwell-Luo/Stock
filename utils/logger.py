@@ -11,7 +11,7 @@ class Logger:
         self.log_level = logging.INFO
         self.file_level = logging.DEBUG
         self.log_path = self.get_log_path(name)
-        self.stream_level = logging.WARNING
+        self.stream_level = logging.ERROR
         self.format = logging.Formatter('%(asctime)s [%(module)s.%(funcName)s:%(lineno)d] [%(levelname)s] : %(message)s')
         self.date_format = "%Y-%m-%d %H:%M:%S"
 
