@@ -1,13 +1,16 @@
 import psycopg2
 from psycopg2 import sql
-from psycopg2.extensions import connection as Connection
+from psycopg2.extensions import connection
+from utils.logger import Logger
+from typing import Dict, List, Tuple, Any, Union
+from psycopg2 import Error
 
 
 class BaseModel:
 
     table_name = ""
 
-    def __init__(self, db_connection: Connection):
+    def __init__(self, db_connection: connection):
         self.connection = db_connection
         self.data = None
         self.conditions = None
@@ -23,6 +26,8 @@ class BaseModel:
         self.order_by_clause = None
         self.returning_clause = None
         self.limit_clause = None
+        # logger
+        self.logger = Logger('model').get_logger()
 
         # When setting up data, exclude the attribute of BaseModel itself
         self.exclude_attr = ("connection",
@@ -39,9 +44,10 @@ class BaseModel:
                              "order_by_clause",
                              "returning_clause",
                              "limit_clause",
-                             "exclude_attr")
+                             "exclude_attr",
+                             "logger")
 
-    def table(self, table_definition):
+    def table(self, table_definition: str) -> Union[List[Tuple[Any, ...]], None]:
 
         try:
             query = sql.SQL("CREATE TABLE IF NOT EXISTS {name} ({definition});").format(
@@ -52,11 +58,15 @@ class BaseModel:
             with self.connection.cursor() as cursor:
                 cursor.execute(query)
                 self.connection.commit()
+                return cursor.fetchall()
 
-        except Exception as err:
-            print(f'Exception : {err}')
+        except psycopg2.Error as error:
+            return self.handle_postgres_error(error)
 
-    def delete_table(self):
+        except Exception as error:
+            return self.handle_exception_error(error)
+
+    def delete_table(self) -> Union[List[Tuple[Any, ...]], None]:
 
         try:
             query = sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(self.table_name))
@@ -64,11 +74,15 @@ class BaseModel:
             with self.connection.cursor() as cursor:
                 cursor.execute(query)
                 self.connection.commit()
+                return cursor.fetchall()
 
-        except Exception as err:
-            print(f'Exception : {err}')
+        except psycopg2.Error as error:
+            return self.handle_postgres_error(error)
 
-    def set_data(self, **kwargs):
+        except Exception as error:
+            return self.handle_exception_error(error)
+
+    def set_data(self, **kwargs) -> Dict:
         for key, value in kwargs.items():
             setattr(self, self._check_attribute(key), value)
 
@@ -77,7 +91,7 @@ class BaseModel:
 
         return self.data
 
-    def set_conditions(self, **kwargs):
+    def set_conditions(self, **kwargs) -> Dict:
 
         self.conditions = {}
 
@@ -86,7 +100,7 @@ class BaseModel:
 
         return self.conditions
 
-    def set_fields(self, *args):
+    def set_fields(self, *args) -> List:
 
         self.fields = []
 
@@ -95,25 +109,30 @@ class BaseModel:
 
         return self.fields
 
-    def set_order(self, field, direction=None):
+    def set_order(self, field: str, direction=None) -> str:
 
         self.order_by = self._check_attribute(field)
 
         if direction:
             self.order_direction = direction
 
-    def set_returning(self, fields):
+        return self.order_by
+
+    def set_returning(self, fields: List) -> List:
 
         self.returning_fields = []
 
         for field in fields:
             self.returning_fields.append(self._check_attribute(field))
 
-    def set_limit(self, limit):
+        return self.returning_fields
+
+    def set_limit(self, limit: str) -> str:
 
         self.limit = limit
+        return self.limit
 
-    def create(self):
+    def create(self) -> Union[int, None]:
 
         columns = self.data.keys()
         values = tuple(self.data.values())
@@ -128,26 +147,18 @@ class BaseModel:
         )
 
         try:
-
             with self.connection.cursor() as cursor:
                 cursor.execute(query, values)
                 self.connection.commit()
                 return cursor.rowcount
 
-        except psycopg2.Error as err:
-            print(f"PostgreSQL Exception : {err}")
-            print(f"Diag : {err.diag}")
-            print(f"Pgcode : {err.pgcode}")
-            print(f"Pgerror : {err.pgerror}")
-            self.connection.rollback()
-            return None
+        except psycopg2.Error as error:
+            return self.handle_postgres_error(error)
 
-        except Exception as err:
-            print(f"Exception : {err}")
-            self.connection.rollback()
-            return None
+        except Exception as error:
+            return self.handle_exception_error(error)
 
-    def read(self):
+    def read(self) -> Union[List[Tuple[Any, ...]], None]:
 
         self._generate_clause()
 
@@ -164,15 +175,13 @@ class BaseModel:
                 cursor.execute(query, tuple(self.conditions.values()) if self.conditions else ())
                 return cursor.fetchall()
 
-        except psycopg2.Error as err:
-            print(f"PostgreSQL Exception : {err}")
-            return None
+        except psycopg2.Error as error:
+            return self.handle_postgres_error(error)
 
-        except Exception as err:
-            print(f"Exception : {err}")
-            return None
+        except Exception as error:
+            return self.handle_exception_error(error)
 
-    def update(self):
+    def update(self) -> Union[int, None]:
 
         self._generate_clause()
 
@@ -188,17 +197,13 @@ class BaseModel:
                 self.connection.commit()
                 return cursor.rowcount
 
-        except psycopg2.Error as err:
-            print(f"PostgreSQL Exception : {err}")
-            self.connection.rollback()
-            return None
+        except psycopg2.Error as error:
+            return self.handle_postgres_error(error)
 
-        except Exception as err:
-            print(f"Exception : {err}")
-            self.connection.rollback()
-            return None
+        except Exception as error:
+            return self.handle_exception_error(error)
 
-    def delete(self):
+    def delete(self) -> Union[int, None]:
 
         self._generate_clause()
 
@@ -214,15 +219,11 @@ class BaseModel:
                 self.connection.commit()
                 return cursor.rowcount
 
-        except psycopg2.Error as err:
-            print(f"PostgreSQL Exception : {err}")
-            self.connection.rollback()
-            return None
+        except psycopg2.Error as error:
+            return self.handle_postgres_error(error)
 
-        except Exception as err:
-            print(f"Exception : {err}")
-            self.connection.rollback()
-            return None
+        except Exception as error:
+            return self.handle_exception_error(error)
 
     def _check_attribute(self, attr):
         if hasattr(self, attr):
@@ -262,3 +263,17 @@ class BaseModel:
             limit=sql.SQL(self.limit)
         ) if self.limit else sql.SQL("")
 
+    def handle_postgres_error(self, error: Error) -> None:
+
+        if error.pgcode == "23505":
+            self.logger.warning(f"{error.pgcode} : {error}")
+        else:
+            self.logger.error(f"{error.pgcode} : {error}")
+
+        self.connection.rollback()
+        return None
+
+    def handle_exception_error(self, error: Exception) -> None:
+        self.logger.error(f"{error}")
+        self.connection.rollback()
+        return None

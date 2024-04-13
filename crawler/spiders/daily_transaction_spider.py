@@ -7,6 +7,8 @@ from models.daily_transaction import DailyTransaction
 from models.company_info import CompanyInfo
 from scrapy import Request
 from dateutil.relativedelta import relativedelta
+from utils.logger import Logger
+from typing import List
 
 
 class DailyTransactionSpider(scrapy.Spider):
@@ -26,6 +28,8 @@ class DailyTransactionSpider(scrapy.Spider):
         self.codes = self.get_stock_codes()
         self.max_retry = 3
 
+        self.log = Logger('crawler').get_logger()
+
     def start_requests(self):
 
         url_template = 'https://www.twse.com.tw/exchangeReport/STOCK_DAY?response=json&date={date}&stockNo={code}'
@@ -34,7 +38,7 @@ class DailyTransactionSpider(scrapy.Spider):
             dates = self.get_start_dates(code)
             for date in dates:
                 url = url_template.format(date=date, code=code)
-                self.logger.info(f"Crawler fetching stock dates and codes : {date} - {code}")
+                self.log.info(f"Crawler fetching stock dates and codes : {date} - {code}")
                 yield scrapy.Request(url=url, callback=self.parse)
 
     def parse(self, response, **kwargs):
@@ -75,7 +79,7 @@ class DailyTransactionSpider(scrapy.Spider):
         codes = company_info.read()
         return [code[0] for code in codes]
 
-    def get_start_dates(self, code):
+    def get_start_dates(self, code) -> List:
 
         self.daily_transaction.set_fields('date')
         self.daily_transaction.set_conditions(code=code)
@@ -104,7 +108,7 @@ class DailyTransactionSpider(scrapy.Spider):
 
         if retry_count < self.max_retry:
             retry_count += 1
-            self.logger.warning(f'Resubmit the request({retry_count}): {response.url}. Error: {err}')
+            self.log.warning(f'Resubmit the request({retry_count}): {response.url}. Error: {err}')
             yield Request(response.url, callback=self.parse, dont_filter=True, meta={'retry_count': retry_count})
         else:
-            self.logger.error(f'Failed to parse {response.url} after after several retries. Exception : {err}')
+            self.log.error(f'Failed to parse {response.url} after after several retries. Exception : {err}')

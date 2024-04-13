@@ -1,5 +1,8 @@
 import psycopg2
 from utils.logger import Logger
+from typing import List, Tuple, Any, Union
+from psycopg2.extensions import connection
+
 
 class Pg:
     def __init__(self):
@@ -13,7 +16,7 @@ class Pg:
         self.conn = None
         self.logger = Logger('postgres').get_logger()
 
-    def connect(self, database_name='', isolation_level=None):
+    def connect(self, database_name='', isolation_level=None) -> Union[connection, None]:
 
         if self.conn is not None:
             return self.conn
@@ -28,8 +31,8 @@ class Pg:
             if isolation_level is not None:
                 self.conn.set_isolation_level(isolation_level)
 
-        except Exception as err:
-            print("Error : ", err)
+        except Exception as error:
+            self.logger.error(error)
             self.conn = None
             return self.conn
 
@@ -39,18 +42,19 @@ class Pg:
         try:
             self.conn.close()
 
-        except Exception as err:
-            print('Exception : ', err)
+        except Exception as error:
+            self.logger.error(error)
 
         self.conn = None
 
-    def command(self, query_str):
+    def command(self, query_str: str) -> Union[List[Tuple[Any, ...]], None]:
 
         try:
             with self.conn.cursor() as cursor:
                 cursor.execute(query_str)
                 return cursor.fetchall()
 
-        except Exception as err:
-            self.logger.error(err)
+        except Exception as error:
+            self.logger.error(error)
+            return None
 
