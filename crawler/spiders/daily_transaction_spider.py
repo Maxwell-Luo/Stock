@@ -64,8 +64,7 @@ class DailyTransactionSpider(scrapy.Spider):
                 item['closing_price'] = data[6]
                 item['price_change'] = data[7]
                 item['tx_count'] = data[8]
-
-            yield item
+                yield item
 
         except Exception as err:
             self.resubmit_request(retry_count, response, err)
