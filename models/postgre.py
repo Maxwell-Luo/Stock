@@ -47,14 +47,18 @@ class Pg:
 
         self.conn = None
 
-    def command(self, query_str: str) -> Union[List[Tuple[Any, ...]], None]:
+    def command(self, query_str: str) -> Union[List[Tuple[Any, ...]], None, int]:
 
         try:
             with self.conn.cursor() as cursor:
                 cursor.execute(query_str)
-                return cursor.fetchall()
+                if cursor.rowcount:
+                    return cursor.fetchall()
+                else:
+                    return None
 
         except Exception as error:
+            self.conn.rollback()
             self.logger.error(error)
             return None
 
