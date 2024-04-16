@@ -5,7 +5,6 @@ import importlib.util
 from models.initialization import Initialization
 from typing import List
 import datetime
-from crawler.crawler import Crawler
 
 
 class Initialize:
@@ -83,10 +82,6 @@ class Initialize:
 
                 if hasattr(instance, 'initial'):
                     instance.initial()
-
-                if table_name == "company_info":
-                    crawler = Crawler()
-                    crawler.initial_for_table()
 
                 self.init.clear_fields()
                 self.init.set_data(is_init=True, last_init=datetime.datetime.now())
