@@ -2,7 +2,7 @@ import psycopg2
 from psycopg2 import sql
 from psycopg2.extensions import connection
 from utils.logger import Logger
-from typing import Dict, List, Tuple, Any, Union
+from typing import Dict, List, Tuple, Any, Union, Optional
 from psycopg2 import Error
 
 
@@ -47,7 +47,7 @@ class BaseModel:
                              "exclude_attr",
                              "logger")
 
-    def table(self, table_definition: str) -> Union[List[Tuple[Any, ...]], None]:
+    def table(self, table_definition: str) -> Optional[bool]:
 
         try:
             query = sql.SQL("CREATE TABLE IF NOT EXISTS {name} ({definition});").format(
@@ -58,7 +58,7 @@ class BaseModel:
             with self.connection.cursor() as cursor:
                 cursor.execute(query)
                 self.connection.commit()
-                return cursor.fetchall()
+                return True
 
         except psycopg2.Error as error:
             return self.handle_postgres_error(error)
@@ -66,7 +66,7 @@ class BaseModel:
         except Exception as error:
             return self.handle_exception_error(error)
 
-    def delete_table(self) -> Union[List[Tuple[Any, ...]], None]:
+    def delete_table(self) -> Optional[bool]:
 
         try:
             query = sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(self.table_name))
@@ -74,7 +74,7 @@ class BaseModel:
             with self.connection.cursor() as cursor:
                 cursor.execute(query)
                 self.connection.commit()
-                return cursor.fetchall()
+                return True
 
         except psycopg2.Error as error:
             return self.handle_postgres_error(error)
@@ -224,6 +224,11 @@ class BaseModel:
 
         except Exception as error:
             return self.handle_exception_error(error)
+
+    def clear_fields(self):
+        for key in self.__dict__.keys():
+            if key not in self.exclude_attr:
+                setattr(self, key, None)
 
     def _check_attribute(self, attr):
         if hasattr(self, attr):

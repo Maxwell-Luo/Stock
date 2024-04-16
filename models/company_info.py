@@ -1,6 +1,5 @@
 from .base_model import BaseModel
 
-
 class CompanyInfo(BaseModel):
 
     table_name = "company_info"
